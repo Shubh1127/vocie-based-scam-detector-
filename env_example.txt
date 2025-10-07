@@ -1,0 +1,20 @@
+# Voice-Based Scam Detector Environment Variables
+# Copy this file to .env and fill in your values
+
+# Google Cloud Credentials
+# Option 1: Service Account JSON file path
+GOOGLE_APPLICATION_CREDENTIALS=./your-service-account-key.json
+
+# Option 2: API Key (if you prefer this method)
+GOOGLE_API_KEY=your-google-api-key-here
+
+# Audio Settings
+SAMPLE_RATE=16000
+CHUNK_SIZE=1024
+CHANNELS=1
+
+# Scam Detection Settings
+SCAM_THRESHOLD=0.5
+VULNERABILITY_THRESHOLD=0.3
+
+

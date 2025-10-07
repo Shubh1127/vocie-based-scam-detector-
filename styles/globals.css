@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles for scam detection dashboard */
+.scam-text {
+  @apply text-scam-red font-bold text-xl animate-pulse-red;
+}
+
+.safe-text {
+  @apply text-safe-green font-semibold text-lg;
+}
+
+.warning-text {
+  @apply text-warning-orange font-medium text-base;
+}
+
+.normal-text {
+  @apply text-gray-700 text-base;
+}
+
+.recording-indicator {
+  @apply bg-danger-red text-white px-4 py-2 rounded-full animate-pulse;
+}
+
+.speaker-badge {
+  @apply inline-block px-3 py-1 rounded-full text-sm font-medium;
+}
+
+.speaker-caller {
+  @apply bg-blue-100 text-blue-800;
+}
+
+.speaker-receiver {
+  @apply bg-green-100 text-green-800;
+}
+
+.speaker-scammer {
+  @apply bg-red-100 text-red-800;
+}
+
+
