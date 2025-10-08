@@ -56,7 +56,16 @@ class CompleteScamDetector:
             'अपडेट', 'पुनः सक्रिय', 'डेबिट', 'क्रेडिट', 'कार्ड', 'नंबर',
             'कहें', 'बताएं', 'दें', 'प्रदान', 'दर्ज', 'इनपुट', 'टाइप',
             'कोड', 'सत्यापन', 'प्रमाणीकरण', 'अनलॉक', 'अनब्लॉक',
-            'पुनः सक्रिय', 'पुनर्स्थापित', 'पहुंच', 'लॉगिन', 'क्रेडेंशियल'
+            'पुनः सक्रिय', 'पुनर्स्थापित', 'पहुंच', 'लॉगिन', 'क्रेडेंशियल',
+            
+            # Bengali keywords
+            'ওটিপি', 'পাসওয়ার্ড', 'পিন', 'অ্যাকাউন্ট', 'ব্লক', 'রোধ', 'জরুরি',
+            'তাৎক্ষণিক', 'যাচাই', 'নিশ্চিত', 'শেয়ার', 'পাঠান', 'ব্যাংক', 'সরকার',
+            'কর', 'রিফান্ড', 'জয়', 'পুরস্কার', 'সন্দেহজনক', 'জালিয়াতি', 'নিরাপত্তা',
+            'আপডেট', 'পুনরায় সক্রিয়', 'ডেবিট', 'ক্রেডিট', 'কার্ড', 'নম্বর',
+            'বলুন', 'বলুন', 'দিন', 'প্রদান', 'লিখুন', 'ইনপুট', 'টাইপ',
+            'কোড', 'যাচাই', 'প্রমাণীকরণ', 'আনলক', 'আনব্লক',
+            'পুনরায় সক্রিয়', 'পুনরুদ্ধার', 'অ্যাক্সেস', 'লগইন', 'ক্রেডেনশিয়াল'
         ]
         
         # High-risk phrases that indicate immediate danger - Multi-language
@@ -101,7 +110,24 @@ class CompleteScamDetector:
             # Hindi Bank Impersonation
             'मैं बैंक से हूं', 'हम बैंक से हैं', 'बैंक का कॉल',
             'बैंक प्रतिनिधि', 'बैंक अधिकारी', 'बैंक कर्मचारी',
-            'हमें पैसे दें', 'हमें रुपए भेजें', 'हमें पैसे ट्रांसफर करें'
+            'हमें पैसे दें', 'हमें रुपए भेजें', 'हमें पैसे ट्रांसफर करें',
+            
+            # Bengali phrases
+            'আপনার ওটিপি বলুন', 'ওটিপি শেয়ার করুন', 'ওটিপি দিন', 'ওটিপি বলুন',
+            'আপনার পাসওয়ার্ড বলুন', 'পাসওয়ার্ড শেয়ার করুন', 'পাসওয়ার্ড দিন',
+            'আপনার পিন বলুন', 'পিন শেয়ার করুন', 'পিন দিন',
+            'ব্যাংক অ্যাকাউন্ট ব্লক', 'অ্যাকাউন্ট রোধ করা হয়েছে', 'জরুরি যাচাই',
+            'জরুরি পদক্ষেপ', 'সন্দেহজনক কার্যকলাপ', 'জালিয়াতি সনাক্ত',
+            
+            # Bengali Payment Scams
+            'টাকা পাঠিয়ে আনব্লক করুন', 'রুপি পাঠিয়ে অ্যাকাউন্ট খুলুন',
+            'টাকা দিয়ে আনব্লক করুন', 'রুপি দিয়ে অ্যাকাউন্ট সক্রিয় করুন',
+            'টাকা ট্রান্সফার করে আনব্লক করুন', 'রুপি পাঠিয়ে সক্রিয় করুন',
+            
+            # Bengali Bank Impersonation
+            'আমি ব্যাংক থেকে', 'আমরা ব্যাংক থেকে', 'ব্যাংকের কল',
+            'ব্যাংক প্রতিনিধি', 'ব্যাংক কর্মকর্তা', 'ব্যাংক কর্মচারী',
+            'আমাদের টাকা দিন', 'আমাদের রুপি পাঠান', 'আমাদের টাকা ট্রান্সফার করুন'
         ]
         
     def test_microphone(self):
@@ -176,6 +202,58 @@ class CompleteScamDetector:
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
                 sample_rate_hertz=16000,  # Use 16kHz like working version
                 language_code='en-US',
+                enable_automatic_punctuation=True,
+                model='phone_call',
+                diarization_config=speech.SpeakerDiarizationConfig(
+                    enable_speaker_diarization=True,
+                    min_speaker_count=2,
+                    max_speaker_count=2
+                )
+            ),
+            # Hindi primary with diarization
+            speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                sample_rate_hertz=16000,
+                language_code='hi-IN',
+                enable_automatic_punctuation=True,
+                model='phone_call',
+                diarization_config=speech.SpeakerDiarizationConfig(
+                    enable_speaker_diarization=True,
+                    min_speaker_count=2,
+                    max_speaker_count=2
+                )
+            ),
+            # Mixed language support (English + Hindi)
+            speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                sample_rate_hertz=16000,
+                language_code='en-IN',  # Indian English with Hindi support
+                enable_automatic_punctuation=True,
+                model='phone_call',
+                diarization_config=speech.SpeakerDiarizationConfig(
+                    enable_speaker_diarization=True,
+                    min_speaker_count=2,
+                    max_speaker_count=2
+                )
+            ),
+            # Bengali primary with diarization
+            speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                sample_rate_hertz=16000,
+                language_code='bn-BD',  # Bengali (Bangladesh)
+                enable_automatic_punctuation=True,
+                model='phone_call',
+                diarization_config=speech.SpeakerDiarizationConfig(
+                    enable_speaker_diarization=True,
+                    min_speaker_count=2,
+                    max_speaker_count=2
+                )
+            ),
+            # Bengali (India) with diarization
+            speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                sample_rate_hertz=16000,
+                language_code='bn-IN',  # Bengali (India)
                 enable_automatic_punctuation=True,
                 model='phone_call',
                 diarization_config=speech.SpeakerDiarizationConfig(
