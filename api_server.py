@@ -6,13 +6,52 @@ import wave
 import tempfile
 import base64
 from complete_scam_detector import CompleteScamDetector
+from user_model import user_model
 import json
+from functools import wraps
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend
 
 # Initialize the scam detector
 scam_detector = CompleteScamDetector()
+
+# Authentication decorator
+def require_auth(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        token = None
+        
+        # Check for token in Authorization header
+        if 'Authorization' in request.headers:
+            auth_header = request.headers['Authorization']
+            try:
+                token = auth_header.split(" ")[1]  # Bearer <token>
+            except IndexError:
+                return jsonify({
+                    'success': False,
+                    'error': 'Invalid authorization header format'
+                }), 401
+        
+        if not token:
+            return jsonify({
+                'success': False,
+                'error': 'Authorization token is missing'
+            }), 401
+        
+        # Verify token
+        user = user_model.verify_jwt_token(token)
+        if not user:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid or expired token'
+            }), 401
+        
+        # Add user to request context
+        request.current_user = user
+        return f(*args, **kwargs)
+    
+    return decorated_function
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
@@ -21,6 +60,219 @@ def health_check():
         'status': 'healthy',
         'message': 'Scam Detection API is running'
     })
+
+# Authentication endpoints
+@app.route('/api/auth/signup', methods=['POST'])
+def signup():
+    """User signup endpoint"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'No data provided'
+            }), 400
+        
+        username = data.get('username', '').strip()
+        email = data.get('email', '').strip()
+        password = data.get('password', '')
+        
+        # Validate input
+        if not username or not email or not password:
+            return jsonify({
+                'success': False,
+                'error': 'Username, email, and password are required'
+            }), 400
+        
+        if len(password) < 6:
+            return jsonify({
+                'success': False,
+                'error': 'Password must be at least 6 characters long'
+            }), 400
+        
+        # Create user
+        result = user_model.create_user(username, email, password)
+        
+        if result['success']:
+            # Generate JWT token
+            token_result = user_model.generate_jwt_token(result['user_id'])
+            
+            if token_result['success']:
+                return jsonify({
+                    'success': True,
+                    'message': 'User created successfully',
+                    'token': token_result['token'],
+                    'user': {
+                        'id': result['user_id'],
+                        'username': username,
+                        'email': email
+                    }
+                }), 201
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'User created but failed to generate token'
+                }), 500
+        else:
+            return jsonify({
+                'success': False,
+                'error': result['error']
+            }), 400
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Signup failed: {str(e)}'
+        }), 500
+
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    """User login endpoint"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'No data provided'
+            }), 400
+        
+        email = data.get('email', '').strip()
+        password = data.get('password', '')
+        
+        # Validate input
+        if not email or not password:
+            return jsonify({
+                'success': False,
+                'error': 'Email and password are required'
+            }), 400
+        
+        # Authenticate user
+        auth_result = user_model.authenticate_user(email, password)
+        
+        if auth_result['success']:
+            # Generate JWT token
+            token_result = user_model.generate_jwt_token(auth_result['user_id'])
+            
+            if token_result['success']:
+                return jsonify({
+                    'success': True,
+                    'message': 'Login successful',
+                    'token': token_result['token'],
+                    'user': {
+                        'id': auth_result['user_id'],
+                        'username': auth_result['username'],
+                        'email': auth_result['email']
+                    }
+                }), 200
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'Authentication successful but failed to generate token'
+                }), 500
+        else:
+            return jsonify({
+                'success': False,
+                'error': auth_result['error']
+            }), 401
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Login failed: {str(e)}'
+        }), 500
+
+@app.route('/api/auth/profile', methods=['GET'])
+@require_auth
+def get_profile():
+    """Get user profile endpoint"""
+    try:
+        user = request.current_user
+        user_data = user_model.get_user_by_id(user['user_id'])
+        
+        if user_data:
+            return jsonify({
+                'success': True,
+                'user': user_data
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'User not found'
+            }), 404
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Failed to get profile: {str(e)}'
+        }), 500
+
+@app.route('/api/auth/history', methods=['GET'])
+@require_auth
+def get_call_history():
+    """Get user's call history endpoint"""
+    try:
+        user = request.current_user
+        limit = request.args.get('limit', 50, type=int)
+        offset = request.args.get('offset', 0, type=int)
+        
+        # Validate pagination parameters
+        if limit > 100:
+            limit = 100
+        if offset < 0:
+            offset = 0
+        
+        result = user_model.get_user_call_history(
+            user['user_id'], 
+            limit=limit, 
+            offset=offset
+        )
+        
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'calls': result['calls'],
+                'total_count': result['total_count'],
+                'limit': result['limit'],
+                'offset': result['offset']
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': result['error']
+            }), 500
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Failed to get call history: {str(e)}'
+        }), 500
+
+@app.route('/api/auth/statistics', methods=['GET'])
+@require_auth
+def get_user_statistics():
+    """Get user statistics endpoint"""
+    try:
+        user = request.current_user
+        result = user_model.get_user_statistics(user['user_id'])
+        
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'statistics': result['statistics']
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': result['error']
+            }), 500
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Failed to get statistics: {str(e)}'
+        }), 500
 
 @app.route('/api/analyze-audio', methods=['POST'])
 def analyze_audio():

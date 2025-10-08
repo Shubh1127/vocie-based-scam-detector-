@@ -3,7 +3,9 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { Mic, LayoutDashboard, Bell, Settings, Brain, Activity, HelpCircle } from "lucide-react"
+import { useAuth } from "@/lib/auth"
+import { Mic, LayoutDashboard, Bell, Settings, Brain, Activity, HelpCircle, LogOut, User } from "lucide-react"
+import { Button } from "@/components/ui/button"
 
 const nav = [
   { href: "/", label: "Start", icon: Activity },
@@ -16,6 +18,7 @@ const nav = [
 
 export function Sidebar() {
   const pathname = usePathname()
+  const { user, logout } = useAuth()
 
   return (
     <aside className="hidden md:flex h-screen w-64 flex-col border-r border-border/70 bg-sidebar/70 backdrop-blur-md">
@@ -48,6 +51,31 @@ export function Sidebar() {
           )
         })}
       </nav>
+      
+      {/* User section */}
+      {user && (
+        <div className="px-3 py-4 border-t border-border/60">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-[color:var(--primary)]/20">
+              <User className="w-4 h-4 text-[color:var(--primary)]" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-foreground truncate">{user.username}</p>
+              <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={logout}
+            className="w-full justify-start gap-2"
+          >
+            <LogOut className="w-4 h-4" />
+            Logout
+          </Button>
+        </div>
+      )}
+      
       <div className="px-3 py-4">
         <Link
           href="/insights"
