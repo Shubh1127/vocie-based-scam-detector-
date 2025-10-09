@@ -12,13 +12,37 @@ class UserModel:
         if not mongodb_uri:
             raise ValueError("MONGODB_URI environment variable is required")
         
-        self.client = MongoClient(mongodb_uri)
+        # Add SSL configuration for MongoDB Atlas
+        import ssl
+        self.client = MongoClient(
+            mongodb_uri,
+            tls=True,
+            tlsAllowInvalidCertificates=True,
+            retryWrites=True,
+            w='majority',
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=10000,
+            socketTimeoutMS=20000
+        )
         self.db = self.client['voice_scam_detector']
         self.users_collection = self.db['users']
         
+        # Test connection before creating indexes
+        try:
+            self.client.admin.command('ping')
+            print("✅ MongoDB connection successful")
+        except Exception as e:
+            print(f"❌ MongoDB connection failed: {e}")
+            raise
+        
         # Create indexes for better performance
-        self.users_collection.create_index("email", unique=True)
-        self.users_collection.create_index("username", unique=True)
+        try:
+            self.users_collection.create_index("email", unique=True)
+            self.users_collection.create_index("username", unique=True)
+            print("✅ MongoDB indexes created successfully")
+        except Exception as e:
+            print(f"⚠️ Index creation warning: {e}")
+            # Continue without indexes if they already exist
     
     def create_user(self, username, email, password):
         """Create a new user"""

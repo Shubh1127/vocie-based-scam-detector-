@@ -7,6 +7,13 @@ import tempfile
 import base64
 from complete_scam_detector import CompleteScamDetector
 from user_model import user_model
+# Mozilla Voice integration (optional)
+try:
+    from mozilla_voice_analyzer_fallback import mozilla_voice_analyzer
+    MOZILLA_VOICE_AVAILABLE = True
+except ImportError:
+    MOZILLA_VOICE_AVAILABLE = False
+    mozilla_voice_analyzer = None
 import json
 from functools import wraps
 
@@ -412,13 +419,118 @@ def analyze_audio():
             'error': str(e)
         }), 500
 
+@app.route('/api/analyze-with-mozilla', methods=['POST'])
+def analyze_with_mozilla():
+    """Enhanced analysis using Mozilla Voice pre-trained models"""
+    try:
+        # Get audio data from request
+        data = request.get_json()
+        
+        if 'audio' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'No audio data provided'
+            }), 400
+        
+        # Decode base64 audio
+        audio_base64 = data['audio']
+        audio_bytes = base64.b64decode(audio_base64)
+        
+        # Save audio to temporary file
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
+            temp_file.write(audio_bytes)
+            temp_file_path = temp_file.name
+        
+        try:
+            # Convert WebM to WAV if needed
+            wav_file_path = temp_file_path.replace('.wav', '_converted.wav')
+            try:
+                from pydub import AudioSegment
+                audio = AudioSegment.from_file(temp_file_path, format="webm")
+                audio = audio.set_frame_rate(16000).set_channels(1)
+                audio.export(wav_file_path, format="wav")
+                temp_file_path = wav_file_path
+            except:
+                # Keep original file if conversion fails
+                pass
+            
+            # Run enhanced analysis with Mozilla Voice integration
+            print("🔄 Running enhanced analysis with Mozilla Voice...")
+            combined_analysis = scam_detector.analyze_conversation_with_mozilla(temp_file_path)
+            
+            return jsonify({
+                'success': True,
+                'data': combined_analysis
+            })
+            
+        finally:
+            # Clean up temporary files
+            if os.path.exists(temp_file_path):
+                os.unlink(temp_file_path)
+            if 'wav_file_path' in locals() and os.path.exists(wav_file_path):
+                os.unlink(wav_file_path)
+                
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+def calculate_combined_risk(existing_analysis, mozilla_insights):
+    """Calculate combined risk score from both analyses"""
+    try:
+        # Get existing risk score
+        existing_risk = existing_analysis.get('overall_risk_score', 0.5)
+        
+        # Get Mozilla Voice risk score
+        mozilla_risk = mozilla_insights.get('overall_assessment', {}).get('overall_risk_score', 0.5)
+        
+        # Combine with weights (you can adjust these)
+        combined_risk = (existing_risk * 0.6) + (mozilla_risk * 0.4)
+        
+        return {
+            'combined_score': combined_risk,
+            'existing_score': existing_risk,
+            'mozilla_score': mozilla_risk,
+            'risk_level': 'high' if combined_risk > 0.7 else 'medium' if combined_risk > 0.4 else 'low'
+        }
+    except Exception as e:
+        print(f"❌ Error calculating combined risk: {e}")
+        return {'combined_score': 0.5, 'risk_level': 'medium'}
+
+def generate_enhanced_suggestions(existing_analysis, mozilla_insights):
+    """Generate enhanced suggestions combining both analyses"""
+    suggestions = []
+    
+    try:
+        # Add existing suggestions
+        if existing_analysis.get('gemini_suggestion'):
+            suggestions.append(f"🤖 AI Analysis: {existing_analysis['gemini_suggestion']}")
+        
+        # Add Mozilla Voice recommendations
+        mozilla_recommendations = mozilla_insights.get('recommendations', [])
+        for rec in mozilla_recommendations:
+            suggestions.append(f"🎤 Voice Analysis: {rec}")
+        
+        # Add combined assessment
+        overall_assessment = mozilla_insights.get('overall_assessment', {})
+        if overall_assessment.get('assessment'):
+            suggestions.append(f"📊 Overall Assessment: {overall_assessment['assessment']}")
+        
+        return suggestions
+        
+    except Exception as e:
+        print(f"❌ Error generating enhanced suggestions: {e}")
+        return ["Analysis completed with some limitations"]
+
 @app.route('/api/test', methods=['GET'])
 def test_endpoint():
     """Test endpoint for debugging"""
     return jsonify({
         'message': 'API is working',
         'scam_keywords': scam_detector.scam_keywords[:5],  # Show first 5 keywords
-        'high_risk_phrases': scam_detector.high_risk_phrases[:3]  # Show first 3 phrases
+        'high_risk_phrases': scam_detector.high_risk_phrases[:3],  # Show first 3 phrases
+        'mozilla_voice_available': MOZILLA_VOICE_AVAILABLE
     })
 
 if __name__ == '__main__':

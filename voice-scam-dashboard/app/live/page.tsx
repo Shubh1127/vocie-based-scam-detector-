@@ -167,7 +167,7 @@ export default function LivePage() {
               </div>
             </div>
 
-            <div className="grid w-full grid-cols-2 gap-6 md:grid-cols-2">
+            <div className="w-full">
               <div className="rounded-xl w-full border border-border/60 bg-card/90 p-4 backdrop-blur">
                 <div className="mb-2 text-sm font-medium">Transcribed Speech</div>
                 <div className="h-32 overflow-y-auto rounded-md border border-border/50 bg-secondary/60 p-3 leading-relaxed">
@@ -192,8 +192,6 @@ export default function LivePage() {
                   )}
                 </div>
               </div>
-
-              
             </div>
           </CardContent>
         </Card>

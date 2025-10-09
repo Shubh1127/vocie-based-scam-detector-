@@ -7,6 +7,15 @@ import time
 from google.cloud import speech
 from dotenv import load_dotenv
 import google.generativeai as genai
+# Mozilla Voice integration (optional)
+try:
+    from mozilla_voice_analyzer_fallback import mozilla_voice_analyzer
+    MOZILLA_VOICE_AVAILABLE = True
+    print("✅ Mozilla Voice analyzer loaded")
+except ImportError as e:
+    print(f"⚠️ Mozilla Voice analyzer not available: {e}")
+    MOZILLA_VOICE_AVAILABLE = False
+    mozilla_voice_analyzer = None
 
 # Load environment variables
 load_dotenv()
@@ -728,6 +737,156 @@ class CompleteScamDetector:
             print("✅ Audio file deleted")
         else:
             print(f"💾 Audio file kept: {audio_file}")
+    
+    def analyze_conversation(self, audio_file):
+        """Analyze a conversation for scam indicators"""
+        print(f"🔄 Analyzing conversation: {audio_file}")
+        
+        # Transcribe with diarization
+        transcription_result = self.transcribe_with_diarization(audio_file)
+        
+        if not transcription_result:
+            return {
+                'success': False,
+                'error': 'Transcription failed'
+            }
+        
+        # Analyze speakers
+        analysis_results = self.analyze_speakers(transcription_result)
+        
+        # Calculate overall risk
+        total_speakers = len(analysis_results)
+        potential_scammers = sum(1 for result in analysis_results.values() if result['is_potential_scammer'])
+        
+        # Calculate overall risk score
+        if total_speakers > 0:
+            scammer_ratio = potential_scammers / total_speakers
+            overall_risk_score = scammer_ratio
+            
+            # Adjust risk score based on vulnerability levels
+            high_vulnerability_count = sum(1 for result in analysis_results.values() if result['vulnerability_level'] == 'high')
+            if high_vulnerability_count > 0:
+                overall_risk_score = min(1.0, overall_risk_score + 0.3)
+        else:
+            overall_risk_score = 0.0
+        
+        # Determine risk level
+        if overall_risk_score > 0.7:
+            risk_level = 'high'
+        elif overall_risk_score > 0.4:
+            risk_level = 'medium'
+        else:
+            risk_level = 'low'
+        
+        # Get AI suggestion
+        gemini_suggestion = self.get_gemini_suggestion(
+            transcription_result['full_text'], 
+            potential_scammers > 0, 
+            risk_level
+        )
+        
+        return {
+            'success': True,
+            'transcription': transcription_result,
+            'speaker_analysis': analysis_results,
+            'overall_risk_score': overall_risk_score,
+            'risk_level': risk_level,
+            'potential_scammers': potential_scammers,
+            'total_speakers': total_speakers,
+            'gemini_suggestion': gemini_suggestion
+        }
+    
+    def analyze_conversation_with_mozilla(self, audio_file):
+        """Enhanced analysis using both existing logic and Mozilla Voice models"""
+        print(f"🔄 Running enhanced analysis with Mozilla Voice: {audio_file}")
+        
+        # Run existing analysis
+        existing_analysis = self.analyze_conversation(audio_file)
+        
+        if not existing_analysis['success']:
+            return existing_analysis
+        
+        # Check if Mozilla Voice is available
+        if not MOZILLA_VOICE_AVAILABLE or mozilla_voice_analyzer is None:
+            print("⚠️ Mozilla Voice analyzer not available, using basic analysis only")
+            return {
+                'success': True,
+                'existing_analysis': existing_analysis,
+                'mozilla_insights': {'error': 'Mozilla Voice analyzer not available'},
+                'combined_risk_score': {
+                    'combined_score': existing_analysis['overall_risk_score'],
+                    'existing_score': existing_analysis['overall_risk_score'],
+                    'mozilla_score': 0.5,
+                    'risk_level': existing_analysis['risk_level']
+                },
+                'enhanced_suggestions': [f"🤖 AI Analysis: {existing_analysis['gemini_suggestion']}"],
+                'analysis_type': 'basic_only'
+            }
+        
+        # Run Mozilla Voice analysis
+        print("🔄 Running Mozilla Voice analysis...")
+        mozilla_insights = mozilla_voice_analyzer.generate_voice_insights(audio_file)
+        
+        # Combine results
+        combined_risk_score = self.calculate_combined_risk(existing_analysis, mozilla_insights)
+        enhanced_suggestions = self.generate_enhanced_suggestions(existing_analysis, mozilla_insights)
+        
+        # Return enhanced analysis
+        return {
+            'success': True,
+            'existing_analysis': existing_analysis,
+            'mozilla_insights': mozilla_insights,
+            'combined_risk_score': combined_risk_score,
+            'enhanced_suggestions': enhanced_suggestions,
+            'analysis_type': 'enhanced_with_mozilla'
+        }
+    
+    def calculate_combined_risk(self, existing_analysis, mozilla_insights):
+        """Calculate combined risk score from both analyses"""
+        try:
+            # Get existing risk score
+            existing_risk = existing_analysis.get('overall_risk_score', 0.5)
+            
+            # Get Mozilla Voice risk score
+            mozilla_risk = mozilla_insights.get('overall_assessment', {}).get('overall_risk_score', 0.5)
+            
+            # Combine with weights (you can adjust these)
+            combined_risk = (existing_risk * 0.6) + (mozilla_risk * 0.4)
+            
+            return {
+                'combined_score': combined_risk,
+                'existing_score': existing_risk,
+                'mozilla_score': mozilla_risk,
+                'risk_level': 'high' if combined_risk > 0.7 else 'medium' if combined_risk > 0.4 else 'low'
+            }
+        except Exception as e:
+            print(f"❌ Error calculating combined risk: {e}")
+            return {'combined_score': 0.5, 'risk_level': 'medium'}
+    
+    def generate_enhanced_suggestions(self, existing_analysis, mozilla_insights):
+        """Generate enhanced suggestions combining both analyses"""
+        suggestions = []
+        
+        try:
+            # Add existing suggestions
+            if existing_analysis.get('gemini_suggestion'):
+                suggestions.append(f"🤖 AI Analysis: {existing_analysis['gemini_suggestion']}")
+            
+            # Add Mozilla Voice recommendations
+            mozilla_recommendations = mozilla_insights.get('recommendations', [])
+            for rec in mozilla_recommendations:
+                suggestions.append(f"🎤 Voice Analysis: {rec}")
+            
+            # Add combined assessment
+            overall_assessment = mozilla_insights.get('overall_assessment', {})
+            if overall_assessment.get('assessment'):
+                suggestions.append(f"📊 Overall Assessment: {overall_assessment['assessment']}")
+            
+            return suggestions
+            
+        except Exception as e:
+            print(f"❌ Error generating enhanced suggestions: {e}")
+            return ["Analysis completed with some limitations"]
 
 def main():
     """Main function"""

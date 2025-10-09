@@ -17,9 +17,24 @@ class AnalyzedCallModel:
             raise ValueError("MONGODB_URI environment variable is required")
         
         try:
-            self.client = MongoClient(self.mongodb_url)
+            # Add SSL configuration for MongoDB Atlas
+            import ssl
+            self.client = MongoClient(
+                self.mongodb_url,
+                tls=True,
+                tlsAllowInvalidCertificates=True,
+                retryWrites=True,
+                w='majority',
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=10000,
+                socketTimeoutMS=20000
+            )
             self.db = self.client['voice_scam_detector']
             self.analyzed_calls_collection = self.db['analyzed_calls']
+            
+            # Test connection before creating indexes
+            self.client.admin.command('ping')
+            print("✅ AnalyzedCallModel MongoDB connection successful")
             
             # Create indexes for better performance
             self.analyzed_calls_collection.create_index("user_id")
@@ -27,6 +42,7 @@ class AnalyzedCallModel:
             self.analyzed_calls_collection.create_index("probability")
             self.analyzed_calls_collection.create_index("outcome")
             self.analyzed_calls_collection.create_index([("user_id", 1), ("timestamp", -1)])
+            print("✅ AnalyzedCallModel indexes created successfully")
             
             print("✅ AnalyzedCall MongoDB connection established successfully")
             
