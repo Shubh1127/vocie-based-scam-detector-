@@ -12,15 +12,15 @@ export function PieScams({ data }: { data: { name: string; value: number }[] }) 
       <CardHeader>
         <CardTitle>Scam vs Legitimate</CardTitle>
       </CardHeader>
-      <CardContent className="h-[280px]">
+      <CardContent className="h-[280px] w-full">
         <ChartContainer
           config={{
             scam: { label: "Scam", color: "hsl(var(--chart-2))" },
             legit: { label: "Legit", color: "hsl(var(--chart-1))" },
           }}
-          className="h-full"
+          className="h-full w-full"
         >
-          <ResponsiveContainer>
+          <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie data={data} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100}>
                 {data.map((entry, index) => (

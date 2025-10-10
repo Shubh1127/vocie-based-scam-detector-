@@ -18,11 +18,14 @@ class UserModel:
             mongodb_uri,
             tls=True,
             tlsAllowInvalidCertificates=True,
+            tlsAllowInvalidHostnames=True,
             retryWrites=True,
             w='majority',
-            serverSelectionTimeoutMS=5000,
-            connectTimeoutMS=10000,
-            socketTimeoutMS=20000
+            serverSelectionTimeoutMS=10000,
+            connectTimeoutMS=15000,
+            socketTimeoutMS=20000,
+            maxPoolSize=50,
+            minPoolSize=5
         )
         self.db = self.client['voice_scam_detector']
         self.users_collection = self.db['users']

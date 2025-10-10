@@ -23,11 +23,14 @@ class AnalyzedCallModel:
                 self.mongodb_url,
                 tls=True,
                 tlsAllowInvalidCertificates=True,
+                tlsAllowInvalidHostnames=True,
                 retryWrites=True,
                 w='majority',
-                serverSelectionTimeoutMS=5000,
-                connectTimeoutMS=10000,
-                socketTimeoutMS=20000
+                serverSelectionTimeoutMS=10000,
+                connectTimeoutMS=15000,
+                socketTimeoutMS=20000,
+                maxPoolSize=50,
+                minPoolSize=5
             )
             self.db = self.client['voice_scam_detector']
             self.analyzed_calls_collection = self.db['analyzed_calls']
@@ -84,6 +87,11 @@ class AnalyzedCallModel:
             risk_level = call_data.get('risk_level', 'safe')
             overall_risk_score = call_data.get('overall_risk_score', 0.0)
             
+            # Extract IPFS information if available
+            ipfs_hash = call_data.get('ipfs_hash')
+            ipfs_url = call_data.get('ipfs_url')
+            pinata_url = call_data.get('pinata_url')
+            
             # Convert risk score to probability percentage
             probability = int(overall_risk_score * 100)
             
@@ -104,8 +112,8 @@ class AnalyzedCallModel:
             
             # Prepare analyzed call document
             analyzed_call_doc = {
-                "user_id": ObjectId(user_id),
-                "timestamp": datetime.utcnow(),
+                "timestamp": datetime.utcnow().isoformat(),
+                "user_id": ObjectId(user_id) if user_id and user_id != "anonymous" else None,
                 "caller": call_data.get('caller', 'Unknown'),
                 "probability": probability,
                 "keywords": keywords,
@@ -119,6 +127,9 @@ class AnalyzedCallModel:
                     "full_text": call_data.get('transcription', {}).get('full_text', ''),
                     "speaker_count": call_data.get('speakers_count', 0)
                 },
+                "ipfs_hash": ipfs_hash,
+                "ipfs_url": ipfs_url,
+                "pinata_url": pinata_url,
                 "analysis": call_data.get('analysis', {}),
                 "metadata": {
                     "audio_duration": call_data.get('audio_duration', 0),
@@ -378,6 +389,64 @@ class AnalyzedCallModel:
                 "error": f"Failed to delete analyzed call: {str(e)}"
             }
     
+    def get_analyzed_calls(self, user_id=None, limit=50, offset=0):
+        """Get analyzed calls with pagination"""
+        try:
+            query = {}
+            if user_id:
+                query["user_id"] = ObjectId(user_id)
+            
+            # Get calls with pagination
+            calls = list(self.analyzed_calls_collection.find(query)
+                        .sort("timestamp", -1)
+                        .skip(offset)
+                        .limit(limit))
+            
+            # Convert ObjectId to string for JSON serialization and format for frontend
+            for call in calls:
+                call["_id"] = str(call["_id"])
+                if call.get("user_id"):
+                    call["user_id"] = str(call["user_id"])
+                # Timestamp is already stored as ISO string, no need to convert
+                
+                # Add frontend-expected fields
+                call["analysis_id"] = call.get("_id")  # Use _id as analysis_id
+                call["keywords_found"] = call.get("keywords", [])  # Map keywords to keywords_found
+                
+                # Ensure transcription has full_text
+                if "transcription" in call and isinstance(call["transcription"], dict):
+                    if "full_text" not in call["transcription"]:
+                        call["transcription"]["full_text"] = ""
+            
+            return calls
+            
+        except Exception as e:
+            print(f"❌ Error getting analyzed calls: {e}")
+            return []
+    
+    def get_analyzed_call_by_id(self, analysis_id, user_id=None):
+        """Get a specific analyzed call by ID"""
+        try:
+            query = {"analysis_id": analysis_id}
+            if user_id:
+                query["user_id"] = ObjectId(user_id)
+            
+            call = self.analyzed_calls_collection.find_one(query)
+            
+            if call:
+                # Convert ObjectId to string for JSON serialization
+                call["_id"] = str(call["_id"])
+                if call.get("user_id"):
+                    call["user_id"] = str(call["user_id"])
+                if call.get("timestamp"):
+                    call["timestamp"] = call["timestamp"].isoformat()
+            
+            return call
+            
+        except Exception as e:
+            print(f"❌ Error getting analyzed call by ID: {e}")
+            return None
+
     def close_connection(self):
         """Close MongoDB connection"""
         if hasattr(self, 'client'):

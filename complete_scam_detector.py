@@ -513,21 +513,90 @@ class CompleteScamDetector:
             RISK LEVEL: {risk_level.upper()}
             LOGIC ANALYSIS: {logic_reason if logic_scam_detected else "No critical patterns detected"}
 
-            Please provide:
-            1. A brief analysis of why this is/isn't a scam
-            2. Specific red flags or safe indicators
+            Please provide a clean, well-formatted response with:
+            1. Brief analysis of why this is/isn't a scam
+            2. Specific red flags or safe indicators  
             3. Actionable advice for the person receiving the call
             4. What they should do next
 
-            Keep response concise (under 200 words) and practical.
+            IMPORTANT FORMATTING RULES:
+            - Use plain text only, NO asterisks, underscores, or special characters
+            - Use proper line breaks between sections
+            - Use numbered lists (1. 2. 3. 4.)
+            - Use bullet points with dashes (-) for sub-items
+            - Keep it concise (under 200 words) and practical
+            - Do not use any markdown formatting
             """
             
             response = self.gemini_model.generate_content(prompt)
-            return response.text.strip()
+            raw_response = response.text.strip()
+            print(f"🔍 Raw Gemini response: {raw_response[:100]}...")
+            
+            formatted_response = self.format_gemini_response(raw_response)
+            print(f"🔍 Formatted response: {formatted_response[:100]}...")
+            
+            return formatted_response
             
         except Exception as e:
             print(f"❌ Gemini AI error: {e}")
             return "AI analysis temporarily unavailable"
+    
+    def format_gemini_response(self, response_text):
+        """Format Gemini response for better readability"""
+        try:
+            import re
+            
+            # More comprehensive cleaning
+            cleaned_text = response_text
+            
+            # Remove all asterisks (single, double, triple, etc.)
+            cleaned_text = re.sub(r'\*+', '', cleaned_text)
+            
+            # Remove other markdown formatting
+            cleaned_text = re.sub(r'__+', '', cleaned_text)  # Remove underscores
+            cleaned_text = re.sub(r'~~+', '', cleaned_text)  # Remove strikethrough
+            
+            # Clean up extra spaces
+            cleaned_text = re.sub(r'\s+', ' ', cleaned_text)
+            
+            # Split into lines and clean up
+            lines = cleaned_text.split('\n')
+            formatted_lines = []
+            
+            for line in lines:
+                line = line.strip()
+                if line:
+                    # Add proper spacing for numbered items
+                    if re.match(r'^\d+\.', line):
+                        formatted_lines.append(f"\n{line}")
+                    # Add spacing for bullet points
+                    elif line.startswith(('-', '•', '◦', '·')):
+                        formatted_lines.append(f"  {line}")
+                    # Add spacing for headers (lines ending with colon)
+                    elif line.endswith(':'):
+                        formatted_lines.append(f"\n{line}")
+                    # Add spacing for lines that look like headers (all caps or title case)
+                    elif line.isupper() and len(line) > 3:
+                        formatted_lines.append(f"\n{line}")
+                    else:
+                        formatted_lines.append(line)
+            
+            # Join lines with proper spacing
+            formatted_response = '\n'.join(formatted_lines)
+            
+            # Clean up multiple newlines
+            while '\n\n\n' in formatted_response:
+                formatted_response = formatted_response.replace('\n\n\n', '\n\n')
+            
+            # Clean up spaces around newlines
+            formatted_response = re.sub(r' \n', '\n', formatted_response)
+            formatted_response = re.sub(r'\n ', '\n', formatted_response)
+            
+            return formatted_response.strip()
+            
+        except Exception as e:
+            print(f"❌ Error formatting Gemini response: {e}")
+            return response_text  # Return original if formatting fails
     
     def analyze_speakers(self, transcription_result):
         """Analyze each speaker for scam indicators (using data from working diarization)"""
@@ -738,6 +807,80 @@ class CompleteScamDetector:
         else:
             print(f"💾 Audio file kept: {audio_file}")
     
+    def detect_bank_related_content(self, transcription_text, keywords_found):
+        """Detect if the audio content is bank-related"""
+        bank_keywords = [
+            'bank', 'banking', 'account', 'balance', 'deposit', 'withdrawal', 'transfer',
+            'credit card', 'debit card', 'atm', 'pin', 'password', 'login', 'online banking',
+            'mobile banking', 'transaction', 'payment', 'loan', 'mortgage', 'interest',
+            'statement', 'checking', 'savings', 'routing number', 'account number',
+            'wire transfer', 'ach', 'fraud', 'suspicious', 'freeze', 'unlock',
+            'verification', 'confirm', 'validate', 'security', 'breach', 'compromise',
+            'card', 'cvv', 'expiry', 'expiration', 'billing', 'invoice', 'refund'
+        ]
+        
+        # Check if any bank keywords are present
+        text_lower = transcription_text.lower()
+        bank_matches = [keyword for keyword in bank_keywords if keyword in text_lower]
+        
+        # Also check keywords_found for bank-related terms
+        bank_keywords_found = [kw for kw in keywords_found if any(bk in kw.lower() for bk in bank_keywords)]
+        
+        is_bank_related = len(bank_matches) > 0 or len(bank_keywords_found) > 0
+        
+        return {
+            'is_bank_related': is_bank_related,
+            'bank_keywords_detected': bank_matches + bank_keywords_found,
+            'confidence': len(bank_matches + bank_keywords_found) / len(bank_keywords) if bank_keywords else 0
+        }
+    
+    def get_bank_rules_from_gemini(self, transcription_text, bank_keywords):
+        """Get bank-specific rules and recommendations from Gemini"""
+        try:
+            prompt = f"""
+            You are a banking security expert. Analyze this phone conversation transcript and provide specific banking rules and recommendations.
+
+            CONVERSATION TRANSCRIPT:
+            "{transcription_text}"
+
+            BANK KEYWORDS DETECTED: {', '.join(bank_keywords)}
+
+            Please provide:
+            1. BANKING RULES that apply to this conversation
+            2. SECURITY RECOMMENDATIONS for the customer
+            3. RED FLAGS to watch out for
+            4. WHAT TO DO if this is a scam attempt
+
+            Format your response as:
+            BANKING RULES:
+            - [Rule 1]
+            - [Rule 2]
+
+            SECURITY RECOMMENDATIONS:
+            - [Recommendation 1]
+            - [Recommendation 2]
+
+            RED FLAGS:
+            - [Red flag 1]
+            - [Red flag 2]
+
+            IMMEDIATE ACTIONS:
+            - [Action 1]
+            - [Action 2]
+
+            Keep responses concise and actionable. Focus on protecting the customer's financial security.
+            """
+
+            response = self.gemini_model.generate_content(prompt)
+            bank_rules = self.format_gemini_response(response.text)
+            
+            print(f"🏦 Generated bank rules: {len(bank_rules)} characters")
+            return bank_rules
+            
+        except Exception as e:
+            print(f"❌ Error generating bank rules: {e}")
+            return "Unable to generate bank-specific recommendations at this time."
+
     def analyze_conversation(self, audio_file):
         """Analyze a conversation for scam indicators"""
         print(f"🔄 Analyzing conversation: {audio_file}")
@@ -785,6 +928,20 @@ class CompleteScamDetector:
             risk_level
         )
         
+        # Check for bank-related content and get bank rules
+        bank_analysis = self.detect_bank_related_content(
+            transcription_result['full_text'], 
+            []  # We'll extract keywords from the analysis results
+        )
+        
+        bank_rules = ""
+        if bank_analysis['is_bank_related']:
+            print(f"🏦 Bank-related content detected: {bank_analysis['bank_keywords_detected']}")
+            bank_rules = self.get_bank_rules_from_gemini(
+                transcription_result['full_text'],
+                bank_analysis['bank_keywords_detected']
+            )
+        
         return {
             'success': True,
             'transcription': transcription_result,
@@ -793,7 +950,9 @@ class CompleteScamDetector:
             'risk_level': risk_level,
             'potential_scammers': potential_scammers,
             'total_speakers': total_speakers,
-            'gemini_suggestion': gemini_suggestion
+            'gemini_suggestion': gemini_suggestion,
+            'bank_analysis': bank_analysis,
+            'bank_rules': bank_rules
         }
     
     def analyze_conversation_with_mozilla(self, audio_file):

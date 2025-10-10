@@ -5,28 +5,47 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useMemo, useState } from "react"
+import { useAuth } from "@/lib/auth"
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
+const fetcher = (url: string) => 
+  fetch(url).then((r) => r.json())
 
 export function CallTable() {
-  const { data } = useSWR("/api/calls", fetcher, { refreshInterval: 5000 })
+  const { token } = useAuth()
+  const { data, error } = useSWR("/api/analyzed-calls", fetcher, { refreshInterval: 5000 })
   const [q, setQ] = useState("")
   const [risk, setRisk] = useState<"all" | "high" | "med" | "low">("all")
 
+  // Debug logging
+  console.log('🔍 CallTable: SWR data:', data)
+  console.log('🔍 CallTable: SWR error:', error)
+  console.log('🔍 CallTable: Token present:', !!token)
+  console.log('🔍 CallTable: Data success:', data?.success)
+  console.log('🔍 CallTable: Data data array:', data?.data)
+  console.log('🔍 CallTable: Data total:', data?.total)
+
   const filtered = useMemo(() => {
-    const calls = (data?.calls ?? []) as any[]
-    return calls.filter((c) => {
+    const calls = (data?.data ?? []) as any[]
+    console.log('🔍 CallTable: Raw calls:', calls)
+    console.log('🔍 CallTable: Number of calls:', calls.length)
+    
+    const filtered_calls = calls.filter((c) => {
       const searchMatch =
         !q ||
-        c.caller.toLowerCase().includes(q.toLowerCase()) ||
-        c.keywords.join(" ").toLowerCase().includes(q.toLowerCase())
+        c.transcription?.full_text?.toLowerCase().includes(q.toLowerCase()) ||
+        c.keywords_found?.join(" ").toLowerCase().includes(q.toLowerCase())
       const riskMatch =
         risk === "all" ||
-        (risk === "high" && c.probability >= 75) ||
-        (risk === "med" && c.probability >= 40 && c.probability < 75) ||
-        (risk === "low" && c.probability < 40)
+        (risk === "high" && (c.scam_detected || c.overall_risk_score >= 0.7)) ||
+        (risk === "med" && c.overall_risk_score >= 0.4 && c.overall_risk_score < 0.7) ||
+        (risk === "low" && c.overall_risk_score < 0.4)
       return searchMatch && riskMatch
     })
+    
+    console.log('🔍 CallTable: Filtered calls:', filtered_calls)
+    console.log('🔍 CallTable: Number of filtered calls:', filtered_calls.length)
+    
+    return filtered_calls
   }, [data, q, risk])
 
   return (
@@ -74,45 +93,52 @@ export function CallTable() {
             <thead className="text-left text-muted-foreground">
               <tr>
                 <th className="px-3 py-2">Date & Time</th>
-                <th className="px-3 py-2">Caller</th>
-                <th className="px-3 py-2">Probability</th>
+                <th className="px-3 py-2">Transcription</th>
+                <th className="px-3 py-2">Risk Score</th>
                 <th className="px-3 py-2">Keywords</th>
                 <th className="px-3 py-2">Outcome</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((c: any) => (
-                <tr key={c.id} className="border-t border-border/60">
-                  <td className="px-3 py-2">{new Date(c.time).toLocaleString()}</td>
-                  <td className="px-3 py-2">{c.caller}</td>
+                <tr key={c.analysis_id} className="border-t border-border/60">
+                  <td className="px-3 py-2">{new Date(c.timestamp).toLocaleString()}</td>
+                  <td className="px-3 py-2 max-w-xs truncate">
+                    {c.transcription?.full_text || 'No transcription'}
+                  </td>
                   <td className="px-3 py-2">
                     <Badge
                       variant="outline"
                       className={
-                        c.probability >= 75
+                        c.scam_detected || c.overall_risk_score >= 0.7
                           ? "border-[color:var(--accent)] text-[color:var(--accent)]"
-                          : c.probability >= 40
-                            ? "border-[color:var(--chart-1)] text-[color:var(--chart-1)]"
-                            : "border-muted-foreground text-muted-foreground"
+                          : c.overall_risk_score >= 0.4
+                          ? "border-[color:var(--chart-1)] text-[color:var(--chart-1)]"
+                          : "border-muted-foreground text-muted-foreground"
                       }
                     >
-                      {Math.round(c.probability)}%
+                      {Math.round(c.overall_risk_score * 100)}%
                     </Badge>
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap gap-1">
-                      {c.keywords.map((k: string) => (
-                        <Badge key={k} variant="secondary">
+                      {(c.keywords_found || []).slice(0, 3).map((k: string) => (
+                        <Badge key={k} variant="secondary" className="text-xs">
                           {k}
                         </Badge>
                       ))}
+                      {(c.keywords_found || []).length > 3 && (
+                        <Badge variant="secondary" className="text-xs">
+                          +{(c.keywords_found || []).length - 3}
+                        </Badge>
+                      )}
                     </div>
                   </td>
                   <td className="px-3 py-2">
-                    {c.probability >= 75 ? (
-                      <span className="text-[color:var(--accent)]">Alerted</span>
-                    ) : c.probability >= 40 ? (
-                      <span className="text-[color:var(--chart-1)]">Potential Risk</span>
+                    {c.scam_detected || c.overall_risk_score >= 0.7 ? (
+                      <span className="text-[color:var(--accent)]">Scam</span>
+                    ) : c.overall_risk_score >= 0.4 ? (
+                      <span className="text-[color:var(--chart-1)]">Suspicious</span>
                     ) : (
                       <span className="text-muted-foreground">Safe</span>
                     )}

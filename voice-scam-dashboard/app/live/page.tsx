@@ -15,10 +15,19 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DashboardShell } from "@/components/shell/dashboard-shell"
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
 
 const fetcher = (url: string, payload?: any) =>
   fetch(url, {
@@ -52,6 +61,8 @@ export default function LivePage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [audioData, setAudioData] = useState<string | null>(null)
   const [useDirectGemini, setUseDirectGemini] = useState(true) // Toggle for direct Gemini
+  const [showAnalysisPopup, setShowAnalysisPopup] = useState(false)
+  const [analysisData, setAnalysisData] = useState<any>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream | null>(null)
@@ -61,10 +72,62 @@ export default function LivePage() {
     ([url, payload]) => fetcher(url, payload),
     { 
       refreshInterval: 0, // Don't auto-refresh
-      onSuccess: () => setIsAnalyzing(false),
+      onSuccess: (data) => {
+        setIsAnalyzing(false)
+        console.log('🔍 SWR onSuccess: Data received:', data)
+        console.log('🔍 SWR onSuccess: Data success:', data?.success)
+        console.log('🔍 SWR onSuccess: Data geminiSuggestion:', data?.geminiSuggestion)
+        console.log('🔍 SWR onSuccess: Data data.gemini_suggestion:', data?.data?.gemini_suggestion)
+        
+        // Trigger popup when analysis data arrives
+        if (data?.success && (data?.geminiSuggestion || data?.data?.gemini_suggestion)) {
+          console.log('✅ SWR onSuccess: Triggering popup!')
+          setAnalysisData(data)
+          setShowAnalysisPopup(true)
+        } else {
+          console.log('❌ SWR onSuccess: Not triggering popup - conditions not met')
+        }
+      },
       onError: () => setIsAnalyzing(false)
     }
   )
+
+  // Effect to handle popup when data changes
+  useEffect(() => {
+    console.log('🔍 Live Page: Data changed:', data)
+    console.log('🔍 Live Page: Data success:', data?.success)
+    console.log('🔍 Live Page: Data geminiSuggestion:', data?.geminiSuggestion)
+    console.log('🔍 Live Page: Data data.gemini_suggestion:', data?.data?.gemini_suggestion)
+    console.log('🔍 Live Page: Data keys:', data ? Object.keys(data) : 'No data')
+    
+    if (data?.success && (data?.geminiSuggestion || data?.data?.gemini_suggestion)) {
+      console.log('✅ Live Page: Triggering popup!')
+      setAnalysisData(data)
+      setShowAnalysisPopup(true)
+    } else {
+      console.log('❌ Live Page: Not triggering popup - conditions not met')
+      // Let's also check for other possible data structures
+      if (data?.success) {
+        console.log('🔍 Live Page: Data is successful, checking all possible fields...')
+        console.log('🔍 Live Page: data.transcript:', data?.transcript)
+        console.log('🔍 Live Page: data.data:', data?.data)
+        console.log('🔍 Live Page: data.data?.transcription:', data?.data?.transcription)
+        console.log('🔍 Live Page: data.data?.gemini_suggestion:', data?.data?.gemini_suggestion)
+        console.log('🔍 Live Page: data.data?.call_summary:', data?.data?.call_summary)
+        console.log('🔍 Live Page: data.data?.bank_analysis:', data?.data?.bank_analysis)
+        console.log('🔍 Live Page: data.data?.bank_rules:', data?.data?.bank_rules)
+        console.log('🔍 Live Page: data.bank_analysis:', data?.bank_analysis)
+        console.log('🔍 Live Page: data.bank_rules:', data?.bank_rules)
+        
+        // Try to trigger popup with any analysis content
+        if (data?.transcript || data?.data?.transcription || data?.data?.call_summary) {
+          console.log('✅ Live Page: Found analysis content, triggering popup!')
+          setAnalysisData(data)
+          setShowAnalysisPopup(true)
+        }
+      }
+    }
+  }, [data])
 
   const startRecording = async () => {
     try {
@@ -183,12 +246,25 @@ export default function LivePage() {
                   {data?.geminiSuggestion ? (
                     <div className="space-y-2">
                       <div><strong>AI Analysis:</strong></div>
-                      <div className="text-blue-400 max-h-32 w-full overflow-y-auto rounded-md border border-border/50 bg-secondary/60 p-3 leading-relaxed">
+                      <div className="text-blue-400 max-h-40 w-full overflow-y-auto rounded-md border border-border/50 bg-secondary/60 p-3 leading-relaxed whitespace-pre-line">
                         {data.geminiSuggestion}
                       </div>
                     </div>
                   ) : (
                     "Highlighted keywords flagged as high risk."
+                  )}
+                  
+                  {/* Bank Rules Section */}
+                  {data?.bank_analysis?.is_bank_related && data?.bank_rules && (
+                    <div className="mt-4 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-yellow-400">🏦</span>
+                        <strong className="text-yellow-400">Banking Rules & Recommendations:</strong>
+                      </div>
+                      <div className="text-yellow-300 max-h-40 w-full overflow-y-auto rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3 leading-relaxed whitespace-pre-line">
+                        {data.bank_rules}
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
@@ -220,6 +296,41 @@ export default function LivePage() {
               <span>Mode</span>
               <span className="text-muted-foreground">{listening ? "Recording" : isAnalyzing ? "Analyzing" : "Idle"}</span>
             </div>
+            
+            {/* Debug: Force popup button for testing */}
+            <div className="flex items-center justify-between text-sm">
+              <span>Debug</span>
+              <Button 
+                size="sm" 
+                variant="outline"
+                onClick={() => {
+                  console.log('🔍 Force popup: Current data:', data)
+                  setAnalysisData(data || { success: true, transcript: "Test transcript", geminiSuggestion: "Test analysis" })
+                  setShowAnalysisPopup(true)
+                }}
+                className="text-xs h-6 px-2"
+              >
+                Force Popup
+              </Button>
+            </div>
+            
+            {(data?.geminiSuggestion || data?.data?.gemini_suggestion || data?.data?.call_summary || data?.transcript) && (
+              <div className="flex items-center justify-between text-sm">
+                <span>Analysis</span>
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  onClick={() => {
+                    console.log('🔍 Manual trigger: Setting analysis data:', data)
+                    setAnalysisData(data)
+                    setShowAnalysisPopup(true)
+                  }}
+                  className="text-xs h-6 px-2"
+                >
+                  View Details
+                </Button>
+              </div>
+            )}
             <div className="flex items-center justify-between text-sm">
               <span>Scam Probability</span>
               <span className={statusColor}>{probability}%</span>
@@ -236,6 +347,12 @@ export default function LivePage() {
               <span>Matched Keywords</span>
               <span className="text-muted-foreground">{(data?.keywords ?? []).join(", ") || "—"}</span>
             </div>
+                {(data?.bank_analysis?.is_bank_related || data?.data?.bank_analysis?.is_bank_related) && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span>Bank Content</span>
+                    <span className="text-yellow-400 text-xs">🏦 Detected</span>
+                  </div>
+                )}
             {useDirectGemini && data?.redFlags && data.redFlags.length > 0 && (
               <div className="flex items-center justify-between text-sm">
                 <span>Red Flags</span>
@@ -268,6 +385,120 @@ export default function LivePage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* AI Analysis Popup Modal */}
+      <Dialog open={showAnalysisPopup}  onOpenChange={setShowAnalysisPopup}>
+        <DialogContent className="w-[90vw] m-2 p-4 h-[80vh] overflow-hidden backdrop-blur">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span className="text-blue-400">🤖</span>
+              AI Analysis Results
+            </DialogTitle>
+            <DialogDescription>
+              Detailed analysis of your audio conversation
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-y-auto space-y-6">
+            {/* Transcription Section */}
+            {(analysisData?.transcript || analysisData?.data?.transcription?.full_text) && (
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold text-blue-400">📝 Conversation Transcript</h3>
+                <div className="p-4 rounded-lg border border-border/50 bg-secondary/60 max-h-40 overflow-y-auto">
+                  <p className="text-sm leading-relaxed">
+                    {highlight(
+                      analysisData?.transcript || analysisData?.data?.transcription?.full_text || '', 
+                      analysisData?.keywords ?? KEYWORDS
+                    )}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* AI Analysis Section */}
+            {(analysisData?.geminiSuggestion || analysisData?.data?.gemini_suggestion || analysisData?.data?.call_summary) && (
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold text-blue-400">🧠 AI Analysis</h3>
+                <div className="p-4 rounded-lg border border-blue-500/30 bg-blue-500/10 max-h-60 overflow-y-auto">
+                  <div className="text-blue-300 whitespace-pre-line leading-relaxed">
+                    {analysisData?.geminiSuggestion || analysisData?.data?.gemini_suggestion || analysisData?.data?.call_summary}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Bank Rules Section */}
+            {((analysisData?.bank_analysis?.is_bank_related && analysisData?.bank_rules) || 
+              (analysisData?.data?.bank_analysis?.is_bank_related && analysisData?.data?.bank_rules)) && (
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold text-yellow-400 flex items-center gap-2">
+                  <span>🏦</span>
+                  Banking Rules & Recommendations
+                </h3>
+                <div className="p-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 max-h-60 overflow-y-auto">
+                  <div className="text-yellow-300 whitespace-pre-line leading-relaxed">
+                    {analysisData?.bank_rules || analysisData?.data?.bank_rules}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Risk Assessment */}
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold text-red-400">⚠️ Risk Assessment</h3>
+              <div className="grid grid-cols-2 gap-4 p-4 rounded-lg border border-border/50 bg-secondary/60">
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-sm">Risk Level:</span>
+                    <span className={`text-sm font-semibold ${
+                      probability >= 75 ? 'text-red-400' : 
+                      probability >= 40 ? 'text-orange-400' : 
+                      'text-green-400'
+                    }`}>
+                      {data?.riskLevel || "—"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm">Scam Probability:</span>
+                    <span className={`text-sm font-semibold ${
+                      probability >= 75 ? 'text-red-400' : 
+                      probability >= 40 ? 'text-orange-400' : 
+                      'text-green-400'
+                    }`}>
+                      {probability}%
+                    </span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-sm">Speakers:</span>
+                    <span className="text-sm">{data?.speakers || "—"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm">Keywords:</span>
+                    <span className="text-sm">{(data?.keywords ?? []).length}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-4 border-t border-border/50">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowAnalysisPopup(false)}
+            >
+              Close
+            </Button>
+            <Button 
+              className="bg-blue-600 hover:bg-blue-700"
+              onClick={() => setShowAnalysisPopup(false)}
+            >
+              Understood
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </DashboardShell>
   )
 }

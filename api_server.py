@@ -7,6 +7,14 @@ import tempfile
 import base64
 from complete_scam_detector import CompleteScamDetector
 from user_model import user_model
+from analyzed_call_model import analyzed_call_model
+# Pinata IPFS integration
+try:
+    from pinata_service import get_pinata_service
+    PINATA_AVAILABLE = True
+except ImportError:
+    PINATA_AVAILABLE = False
+    get_pinata_service = None
 # Mozilla Voice integration (optional)
 try:
     from mozilla_voice_analyzer_fallback import mozilla_voice_analyzer
@@ -16,6 +24,10 @@ except ImportError:
     mozilla_voice_analyzer = None
 import json
 from functools import wraps
+import base64
+import uuid
+from datetime import datetime
+from email_service import send_call_analysis_notification
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend
@@ -373,6 +385,24 @@ def analyze_audio():
             )
             print("✅ Gemini AI suggestion received")
             
+            # Check for bank-related content and get bank rules
+            print("🏦 Checking for bank-related content...")
+            bank_analysis = scam_detector.detect_bank_related_content(
+                transcription_result['full_text'], 
+                []  # We'll extract keywords from the analysis results
+            )
+            
+            bank_rules = ""
+            if bank_analysis['is_bank_related']:
+                print(f"🏦 Bank-related content detected: {bank_analysis['bank_keywords_detected']}")
+                bank_rules = scam_detector.get_bank_rules_from_gemini(
+                    transcription_result['full_text'],
+                    bank_analysis['bank_keywords_detected']
+                )
+                print("✅ Bank rules generated")
+            else:
+                print("ℹ️ No bank-related content detected")
+            
             # Run logic-based analysis to get more accurate scam detection
             logic_scam_detected, logic_reason = scam_detector.analyze_conversation_logic(
                 transcription_result['full_text']
@@ -399,9 +429,150 @@ def analyze_audio():
                     'call_summary': call_summary,
                     'gemini_suggestion': gemini_suggestion,
                     'logic_scam_detected': logic_scam_detected,
-                    'logic_reason': logic_reason
+                    'logic_reason': logic_reason,
+                    'bank_analysis': bank_analysis,
+                    'bank_rules': bank_rules
                 }
             }
+            
+            # Upload audio to Pinata IPFS
+            ipfs_info = None
+            if PINATA_AVAILABLE:
+                try:
+                    print("📤 Uploading audio to Pinata IPFS...")
+                    pinata_service = get_pinata_service()
+                    
+                    # Generate filename with timestamp
+                    from datetime import datetime
+                    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+                    filename = f"audio_analysis_{timestamp}.wav"
+                    
+                    # Prepare metadata
+                    metadata = {
+                        "analysis_id": str(uuid.uuid4()),
+                        "risk_score": overall_risk_score,
+                        "scam_detected": final_scam_detected,
+                        "risk_level": risk_level,
+                        "speakers_count": len(analysis_results),
+                        "keywords_found": len([kw for speaker in analysis_results.values() for kw in speaker.get('scam_keywords', [])])
+                    }
+                    
+                    # Upload the WAV file
+                    ipfs_info = pinata_service.upload_audio_file(audio_bytes, filename, metadata)
+                    
+                    if ipfs_info:
+                        print(f"✅ Audio uploaded to IPFS: {ipfs_info['ipfs_hash']}")
+                        # Add IPFS info to response
+                        response_data['data']['ipfs_hash'] = ipfs_info['ipfs_hash']
+                        response_data['data']['ipfs_url'] = ipfs_info['ipfs_url']
+                        response_data['data']['pinata_url'] = ipfs_info['pinata_url']
+                    else:
+                        print("❌ Failed to upload audio to IPFS")
+                        
+                except Exception as e:
+                    print(f"❌ Error uploading to Pinata: {e}")
+                    # Continue without IPFS upload
+            else:
+                print("ℹ️ Pinata not available, skipping IPFS upload")
+            
+            # Store analysis data in database
+            print("🔄 Starting database storage process...")
+            try:
+                # Get user info if authenticated
+                user_id = getattr(request, 'current_user', {}).get('user_id') if hasattr(request, 'current_user') else None
+                print(f"🔍 User ID: {user_id}")
+                print(f"🔍 Has current_user: {hasattr(request, 'current_user')}")
+                
+                # Create analysis record in the format expected by save_analyzed_call
+                analysis_record = {
+                    'analysis_id': str(uuid.uuid4()),
+                    'caller': 'Unknown',  # We don't have caller info
+                    'transcription': transcription_result,
+                    'analysis': analysis_results,  # This is what the method expects
+                    'overall_risk_score': overall_risk_score,
+                    'risk_level': risk_level,
+                    'scam_detected': final_scam_detected,
+                    'gemini_suggestion': gemini_suggestion,
+                    'logic_scam_detected': logic_scam_detected,
+                    'logic_reason': logic_reason,
+                    'call_summary': call_summary,
+                    'audio_duration': len(audio_bytes) / (16000 * 2) if 'audio_bytes' in locals() else 0,
+                    'speakers_count': len(analysis_results),
+                    'keywords_found': [keyword for result in analysis_results.values() for keyword in result.get('scam_keywords', [])],
+                    'audio_format': 'webm',
+                    'ipfs_hash': ipfs_info['ipfs_hash'] if ipfs_info else None,
+                    'ipfs_url': ipfs_info['ipfs_url'] if ipfs_info else None,
+                    'pinata_url': ipfs_info['pinata_url'] if ipfs_info else None
+                }
+                
+                print(f"🔍 Analysis record created: {analysis_record['analysis_id']}")
+                print(f"🔍 Record keys: {list(analysis_record.keys())}")
+                print(f"🔍 Transcription text length: {len(transcription_result.get('full_text', ''))}")
+                print(f"🔍 Speakers detected: {len(analysis_results)}")
+                print(f"🔍 Keywords found: {len(analysis_record['keywords_found'])}")
+                
+                # Save to analyzed_calls collection
+                print("🔄 Calling analyzed_call_model.save_analyzed_call...")
+                print(f"🔍 User ID for save: {user_id}")
+                print(f"🔍 Analysis record type: {type(analysis_record)}")
+                
+                # Handle None user_id - pass None to the method
+                user_id_str = str(user_id) if user_id else None
+                print(f"🔍 User ID for save: {user_id_str}")
+                
+                save_result = analyzed_call_model.save_analyzed_call(user_id_str, analysis_record)
+                print(f"🔍 Save result: {save_result}")
+                
+                if save_result.get('success'):
+                    print("✅ Analysis data stored in database successfully")
+                    # Add analysis_id to response
+                    response_data['data']['analysis_id'] = analysis_record['analysis_id']
+                    
+                    # Send email notification if user is authenticated
+                    if user_id:
+                        try:
+                            print("📧 Sending email notification...")
+                            # Get user info for email
+                            user_info = user_model.get_user_by_id(user_id)
+                            if user_info:
+                                user_email = user_info.get('email')
+                                user_name = user_info.get('username', user_info.get('name', 'User'))
+                                
+                                if user_email:
+                                    # Prepare analysis data for email
+                                    email_data = {
+                                        'timestamp': analysis_record['timestamp'],
+                                        'caller': analysis_record['caller'],
+                                        'overall_risk_score': analysis_record['overall_risk_score'],
+                                        'scam_detected': analysis_record['scam_detected'],
+                                        'keywords_found': analysis_record['keywords_found'],
+                                        'transcription': analysis_record.get('transcription', {}),
+                                        'call_summary': analysis_record.get('call_summary', '')
+                                    }
+                                    
+                                    # Send email notification
+                                    email_sent = send_call_analysis_notification(user_email, user_name, email_data)
+                                    if email_sent:
+                                        print(f"✅ Email notification sent to {user_email}")
+                                    else:
+                                        print(f"❌ Failed to send email to {user_email}")
+                                else:
+                                    print("❌ User email not found, skipping email notification")
+                            else:
+                                print("❌ User info not found, skipping email notification")
+                        except Exception as e:
+                            print(f"❌ Error sending email notification: {e}")
+                            # Don't fail the request if email fails
+                    else:
+                        print("ℹ️ No authenticated user, skipping email notification")
+                else:
+                    print(f"❌ Database save failed: {save_result.get('error', 'Unknown error')}")
+                
+            except Exception as e:
+                print(f"❌ Exception in database storage: {e}")
+                import traceback
+                print(f"🔍 Full traceback: {traceback.format_exc()}")
+                # Continue without failing the request
             
             print("✅ Response formatted successfully")
             return jsonify(response_data)
@@ -522,6 +693,88 @@ def generate_enhanced_suggestions(existing_analysis, mozilla_insights):
     except Exception as e:
         print(f"❌ Error generating enhanced suggestions: {e}")
         return ["Analysis completed with some limitations"]
+
+@app.route('/api/analyzed-calls', methods=['GET'])
+def get_analyzed_calls():
+    """Get analysis history for the authenticated user"""
+    print("🔍 API: /api/analyzed-calls called")
+    try:
+        # Get user info if authenticated
+        user_id = getattr(request, 'current_user', {}).get('user_id') if hasattr(request, 'current_user') else None
+        print(f"🔍 User ID: {user_id}")
+        
+        # Get query parameters
+        limit = request.args.get('limit', 50, type=int)
+        offset = request.args.get('offset', 0, type=int)
+        print(f"🔍 Query params - limit: {limit}, offset: {offset}")
+        
+        # Get analyzed calls from database
+        print("🔄 Fetching calls from database...")
+        calls = analyzed_call_model.get_analyzed_calls(user_id, limit, offset)
+        print(f"🔍 Retrieved {len(calls)} calls from database")
+        
+        if calls:
+            print(f"🔍 Sample call keys: {list(calls[0].keys())}")
+            print(f"🔍 Sample call timestamp: {calls[0].get('timestamp')}")
+            print(f"🔍 Sample call caller: {calls[0].get('caller')}")
+            print(f"🔍 Sample call probability: {calls[0].get('probability')}")
+            print(f"🔍 Sample call keywords: {calls[0].get('keywords')}")
+            print(f"🔍 Sample call keywords_found: {calls[0].get('keywords_found')}")
+            print(f"🔍 Sample call scam_detected: {calls[0].get('scam_detected')}")
+            print(f"🔍 Sample call overall_risk_score: {calls[0].get('overall_risk_score')}")
+            print(f"🔍 Sample call transcription: {calls[0].get('transcription')}")
+            print(f"🔍 Sample call outcome: {calls[0].get('outcome')}")
+            print(f"🔍 Sample call risk_level: {calls[0].get('risk_level')}")
+            print(f"🔍 Sample call call_summary: {calls[0].get('call_summary')}")
+        
+        response_data = {
+            'success': True,
+            'data': calls,
+            'total': len(calls),
+            'limit': limit,
+            'offset': offset
+        }
+        
+        print(f"🔍 Response data keys: {list(response_data.keys())}")
+        print(f"🔍 Response data length: {len(response_data['data'])}")
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        print(f"❌ Error in get_analyzed_calls: {e}")
+        import traceback
+        print(f"🔍 Full traceback: {traceback.format_exc()}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/analyzed-calls/<analysis_id>', methods=['GET'])
+def get_analyzed_call_details(analysis_id):
+    """Get detailed analysis for a specific call"""
+    try:
+        # Get user info if authenticated
+        user_id = getattr(request, 'current_user', {}).get('user_id') if hasattr(request, 'current_user') else None
+        
+        # Get specific analyzed call
+        call = analyzed_call_model.get_analyzed_call_by_id(analysis_id, user_id)
+        
+        if not call:
+            return jsonify({
+                'success': False,
+                'error': 'Analysis not found'
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            'data': call
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/api/test', methods=['GET'])
 def test_endpoint():

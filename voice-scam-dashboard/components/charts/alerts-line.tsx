@@ -8,20 +8,27 @@ export function AlertsLine({ data }: { data: { name: string; alerts: number }[] 
   return (
     <Card className="border-border/60 bg-secondary/60 backdrop-blur">
       <CardHeader>
-        <CardTitle>Alerts Over Time</CardTitle>
+        <CardTitle>High-Risk Calls (Last 12 Hours)</CardTitle>
       </CardHeader>
-      <CardContent className="h-[280px]">
+      <CardContent className="h-[280px] w-full">
         <ChartContainer
           config={{
-            alerts: { label: "Alerts", color: "hsl(var(--chart-2))" },
+            alerts: { label: "High-Risk Calls", color: "hsl(var(--chart-2))" },
           }}
-          className="h-full"
+          className="h-full w-full"
         >
-          <ResponsiveContainer>
-            <LineChart data={data}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-              <XAxis dataKey="name" />
-              <YAxis />
+              <XAxis 
+                dataKey="name" 
+                tick={{ fontSize: 11 }}
+                interval={0}
+                angle={-30}
+                textAnchor="end"
+                height={50}
+              />
+              <YAxis tick={{ fontSize: 12 }} />
               <ChartTooltip content={<ChartTooltipContent />} />
               <Legend />
               <Line type="monotone" dataKey="alerts" stroke="var(--chart-2)" strokeWidth={2} dot={false} />
