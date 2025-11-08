@@ -24,6 +24,8 @@ The backend will run on `http://localhost:5000`
 
 ### 2. Start the Web Dashboard
 ```bash
+cd voice-scam-dashboard
+
 # Install Node.js dependencies
 npm install
 
