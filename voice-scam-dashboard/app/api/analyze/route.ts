@@ -55,19 +55,47 @@ export async function POST(req: Request) {
     }
 
     const data = backendData.data
-    const scamDetected = data.scam_detected || data.logic_scam_detected
-    const riskScore = data.overall_risk_score || 0
+    const geminiText = (data.gemini_suggestion || "").toLowerCase()
+    const geminiScamHint = [
+      "this is a scam",
+      "scam attempt",
+      "scam detected",
+      "fraud",
+      "impersonation",
+      "phishing",
+      "hang up immediately",
+      "block the number",
+    ].some((phrase) => geminiText.includes(phrase))
+
+    const baseRiskScore = Number(data.overall_risk_score || 0)
+    const riskScore = Math.max(
+      baseRiskScore,
+      data.logic_scam_detected ? 0.9 : 0,
+      geminiScamHint ? 0.85 : 0
+    )
     const probability = Math.round(riskScore * 100)
     
     // Extract keywords from analysis
-    const keywords = []
-    if (data.analysis) {
+    const keywords = Array.isArray(data.keywords) ? [...data.keywords] : []
+    if (!keywords.length && data.analysis) {
       Object.values(data.analysis).forEach((speaker: any) => {
         if (speaker.scam_keywords) {
           keywords.push(...speaker.scam_keywords)
         }
       })
     }
+
+    if (!keywords.length && data.transcription?.full_text) {
+      const transcriptLower = String(data.transcription.full_text).toLowerCase()
+      const fallbackKeywords = ["otp", "password", "pin", "bank", "urgent", "transfer", "refund", "verification", "microsoft"]
+      keywords.push(...fallbackKeywords.filter((k) => transcriptLower.includes(k)))
+    }
+
+    const scamDetected = Boolean(data.scam_detected || data.logic_scam_detected || data.gemini_scam_detected || geminiScamHint)
+    const normalizedRiskLevel =
+      riskScore >= 0.7 ? "critical" :
+      riskScore >= 0.4 ? "high" :
+      riskScore >= 0.2 ? "medium" : "safe"
 
     const status = scamDetected 
       ? "Scam Detected!" 
@@ -83,7 +111,7 @@ export async function POST(req: Request) {
       keywords: [...new Set(keywords)], // Remove duplicates
       probability,
       scamDetected,
-      riskLevel: data.risk_level,
+      riskLevel: normalizedRiskLevel,
       geminiSuggestion: data.gemini_suggestion,
       speakers: data.speakers_count,
     })

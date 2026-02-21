@@ -63,6 +63,7 @@ export default function LivePage() {
   const [useDirectGemini, setUseDirectGemini] = useState(true) // Toggle for direct Gemini
   const [showAnalysisPopup, setShowAnalysisPopup] = useState(false)
   const [analysisData, setAnalysisData] = useState<any>(null)
+  const [showScamAlert, setShowScamAlert] = useState(false)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream | null>(null)
@@ -118,6 +119,8 @@ export default function LivePage() {
         console.log('🔍 Live Page: data.data?.bank_rules:', data?.data?.bank_rules)
         console.log('🔍 Live Page: data.bank_analysis:', data?.bank_analysis)
         console.log('🔍 Live Page: data.bank_rules:', data?.bank_rules)
+        console.log('🔍 Live Page: Bank analysis is_bank_related:', data?.data?.bank_analysis?.is_bank_related)
+        console.log('🔍 Live Page: Bank rules length:', data?.data?.bank_rules?.length || 0)
         
         // Try to trigger popup with any analysis content
         if (data?.transcript || data?.data?.transcription || data?.data?.call_summary) {
@@ -199,7 +202,14 @@ export default function LivePage() {
 
   const status = data?.status ?? (isAnalyzing ? "Analyzing..." : listening ? "Recording" : "Idle")
   const probability = Math.round(data?.probability ?? 0)
-  const triggered = probability >= 75
+  // Show scam alert if probability >= 75 and not already dismissed
+  useEffect(() => {
+    if (probability >= 75) {
+      setShowScamAlert(true)
+    }
+  }, [probability])
+
+  const triggered = showScamAlert
 
   const statusColor = useMemo(
     () =>
@@ -369,7 +379,7 @@ export default function LivePage() {
         </Card>
       </div>
 
-      <AlertDialog open={triggered}>
+      <AlertDialog open={triggered} onOpenChange={setShowScamAlert}>
         <AlertDialogContent className="backdrop-blur">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-[color:var(--accent)]">Scam Risk Detected</AlertDialogTitle>
@@ -378,8 +388,8 @@ export default function LivePage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Dismiss</AlertDialogCancel>
-            <AlertDialogAction className="bg-[color:var(--accent)] text-[color:var(--accent-foreground)] hover:opacity-90">
+            <AlertDialogCancel onClick={() => setShowScamAlert(false)}>Dismiss</AlertDialogCancel>
+            <AlertDialogAction className="bg-[color:var(--accent)] text-[color:var(--accent-foreground)] hover:opacity-90" onClick={() => setShowScamAlert(false)}>
               Mark Reviewed
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -388,7 +398,7 @@ export default function LivePage() {
 
       {/* AI Analysis Popup Modal */}
       <Dialog open={showAnalysisPopup}  onOpenChange={setShowAnalysisPopup}>
-        <DialogContent className="w-[90vw] m-2 p-4 h-[80vh] overflow-hidden backdrop-blur">
+        <DialogContent className="!max-w-none w-[75vw] h-[85vh] m-2 p-4 overflow-hidden backdrop-blur">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <span className="text-blue-400">🤖</span>

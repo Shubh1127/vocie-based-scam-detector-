@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server"
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY
+const GEMINI_MODEL = process.env.GEMINI_MODEL
+
+const DEFAULT_MODELS = [
+  GEMINI_MODEL,
+  'gemini-2.0-flash',
+  'gemini-1.5-flash'
+].filter(Boolean) as string[]
 
 export async function POST(req: Request) {
   try {
@@ -21,20 +28,11 @@ export async function POST(req: Request) {
       )
     }
 
-    // Convert base64 audio to proper format for Gemini
-    const audioData = `data:audio/webm;base64,${audio}`
-
-    // Send to Gemini 2.0 Flash with Audio
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            {
-              text: `Analyze this audio conversation for scam detection. Please provide:
+    const requestBody = {
+      contents: [{
+        parts: [
+          {
+            text: `Analyze this audio conversation for scam detection. Please provide:
 
 1. **Transcription**: Convert the audio to text
 2. **Scam Analysis**: Is this a scam attempt? (Yes/No)
@@ -55,21 +53,62 @@ Format your response as JSON:
   "suspiciousSpeaker": "speaker description",
   "recommendations": "actionable advice"
 }`
-            },
-            {
-              inlineData: {
-                mimeType: "audio/webm",
-                data: audio
-              }
+          },
+          {
+            inlineData: {
+              mimeType: "audio/webm",
+              data: audio
             }
-          ]
-        }]
-      })
-    })
+          }
+        ]
+      }]
+    }
 
-    if (!response.ok) {
+    let response: Response | null = null
+    let lastError = ''
+
+    for (const model of DEFAULT_MODELS) {
+      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      })
+
+      if (response.ok) {
+        break
+      }
+
       const errorText = await response.text()
-      throw new Error(`Gemini API error: ${response.status} - ${errorText}`)
+      lastError = `model=${model} status=${response.status} body=${errorText}`
+
+      if (response.status === 429) {
+        const retryMatch = errorText.match(/Please retry in\s+([\d.]+)s/i)
+        const retryAfterSeconds = retryMatch ? Math.ceil(Number(retryMatch[1])) : null
+        const hardQuotaExceeded = /limit:\s*0/i.test(errorText)
+
+        return NextResponse.json(
+          {
+            error: 'Gemini quota exceeded',
+            details: hardQuotaExceeded
+              ? 'This API key currently has zero available Gemini free-tier quota for this model. Enable billing, switch to another key/project, or try later.'
+              : 'Gemini rate limit reached. Please retry after the cooldown period.',
+            retryAfterSeconds,
+            model,
+            providerError: errorText
+          },
+          { status: 429 }
+        )
+      }
+
+      if (response.status !== 404) {
+        throw new Error(`Gemini API error: ${response.status} - ${errorText}`)
+      }
+    }
+
+    if (!response || !response.ok) {
+      throw new Error(`Gemini API model not available. Tried: ${DEFAULT_MODELS.join(', ')}. Last error: ${lastError}`)
     }
 
     const geminiResponse = await response.json()
